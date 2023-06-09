@@ -7,3 +7,4 @@ from .neuralucbvi import *
 from .ucb import *
 from .ucbvi import *
 from .utils import *
+from .mcb import *

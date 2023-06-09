@@ -10,6 +10,8 @@ class NeuralUCB(UCB):
     """
     def __init__(self,
                  bandit,
+                 model,
+                 optimizer,
                  hidden_size=20,
                  n_layers=2,
                  reg_factor=1.0,
@@ -37,21 +39,14 @@ class NeuralUCB(UCB):
         self.epochs = epochs
 
         self.use_cuda = use_cuda
-        if self.use_cuda:
-            raise Exception(
-                'Not yet CUDA compatible : TODO for later (not necessary to obtain good results')
         self.device = torch.device('cuda' if torch.cuda.is_available() and self.use_cuda else 'cpu')
 
         # dropout rate
         self.p = p
 
         # neural network
-        self.model = Model(input_size=bandit.n_features,
-                           hidden_size=self.hidden_size,
-                           n_layers=self.n_layers,
-                           p=self.p
-                           ).to(self.device)
-        self.optimizer = torch.optim.Adam(self.model.parameters(), lr=self.learning_rate)
+        self.model = model
+        self.optimizer = optimizer
 
         # maximum L2 norm for the features across all arms and all rounds
         self.bound_features = np.max(np.linalg.norm(bandit.features, ord=2, axis=-1))
@@ -97,8 +92,9 @@ class NeuralUCB(UCB):
             y.backward()
 
             self.grad_approx[a] = torch.cat(
-                [w.grad.detach().flatten() / np.sqrt(self.hidden_size) for w in self.model.parameters() if w.requires_grad]
-            ).to(self.device)
+                [w.grad.detach().flatten() / np.sqrt(self.hidden_size) 
+                 for w in self.model.parameters() if w.requires_grad]
+            ).cpu().numpy()
 
     def reset(self):
         """Reset the internal estimates.
@@ -135,4 +131,4 @@ class NeuralUCB(UCB):
         self.model.eval()
         self.mu_hat[self.iteration] = self.model.forward(
             torch.FloatTensor(self.bandit.features[self.iteration]).to(self.device)
-        ).detach().squeeze()
+        ).detach().squeeze().cpu()
