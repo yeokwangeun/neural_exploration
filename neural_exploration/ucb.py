@@ -152,7 +152,7 @@ class UCB(abc.ABC):
                 self.action = self.sample_action()
                 self.actions[t] = self.action
                 # update approximator
-                if t % self.train_every == 0:
+                if (t + 1) % self.train_every == 0:
                     self.train()
                 # update exploration indicator A_inv
                 self.update_A_inv()

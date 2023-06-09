@@ -13,5 +13,5 @@ ml load cuda/11.1
 eval "$(conda shell.bash hook)"
 conda activate py38
 
-COMMAND="python main.py --num_pca 8 --T 100 --topk 500"
+COMMAND="python main.py --num_pca 8 --T 100 --topk 50"
 srun $COMMAND

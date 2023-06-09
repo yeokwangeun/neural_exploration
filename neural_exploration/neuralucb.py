@@ -3,6 +3,7 @@ import torch
 import torch.nn as nn
 from .ucb import UCB
 from .utils import Model
+from tqdm import tqdm
 
 
 class NeuralUCB(UCB):
@@ -24,8 +25,10 @@ class NeuralUCB(UCB):
                  train_every=1,
                  throttle=1,
                  use_cuda=False,
+                 logger=None,
                  ):
 
+        self.logger = logger
         # hidden size of the NN layers
         self.hidden_size = hidden_size
         # number of layers
@@ -117,12 +120,17 @@ class NeuralUCB(UCB):
 
         # train mode
         self.model.train()
-        for _ in range(self.epochs):
+        total_loss = 0.
+        loader = tqdm(range(self.epochs))
+        for e in loader:
             y_pred = self.model.forward(x_train).squeeze()
-            loss = nn.MSELoss()(y_train, y_pred)
+            loss = nn.BCEWithLogitsLoss()(y_pred, y_train)
             self.optimizer.zero_grad()
             loss.backward()
             self.optimizer.step()
+            total_loss += loss.item()
+            loader.set_description(f"Epoch {e} - Loss: {loss.item():.4f}.")
+        self.logger.info(f"Training neural net done. loss: {total_loss}")
 
     def predict(self):
         """Predict reward.

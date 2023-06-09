@@ -6,6 +6,9 @@ from neural_exploration import MultimodalContextualBandit, NeuralUCB, Model
 import argparse
 import pickle
 from sklearn.model_selection import train_test_split
+import os
+import logging
+from datetime import datetime
 
 sns.set()
 
@@ -16,14 +19,13 @@ def parse_arguments():
     parser.add_argument("--seed", type=int, default=1234)
     parser.add_argument("--topk", type=int, default=100)
     parser.add_argument("--num_items", type=int, default=2647)
-    parser.add_argument("--num_users", type=int, default=1000)
     parser.add_argument("--num_pca", type=int, default=0)
     parser.add_argument("--dropout", type=float, default=0.2)
     parser.add_argument("--n_layers", type=int, default=2)
     parser.add_argument("--hidden_size", type=int, default=32)
     parser.add_argument("--epochs", type=int, default=100)
     parser.add_argument("--train_every", type=int, default=10)
-    parser.add_argument("--learning_rate", type=float, default=0.01)
+    parser.add_argument("--learning_rate", type=float, default=0.001)
     parser.add_argument("--confidence_scaling_factor", type=float, default=0.1)
     parser.add_argument("--test_size", type=float, default=0.2)
     args = parser.parse_args()
@@ -31,13 +33,13 @@ def parse_arguments():
     return args
 
 
-def train(args, train_df, bandit, model, optimizer):
+def train(args, train_df, bandit, model, optimizer, logger):
     regrets = np.empty((len(train_df["user_id"]), args.T))
     for i, uid in enumerate(train_df["user_id"]):
-        print(f"Simulation (User {uid}) Starts")
-        print("Bandit reset...")
+        logger.info(f"Simulation {i} (User {uid}) Starts")
+        logger.info("Bandit reset...")
         bandit.reset(uid)
-        print("Run UCB")
+        logger.info("Run UCB")
         neural_ucb = NeuralUCB(
             bandit,
             model=model,
@@ -52,9 +54,11 @@ def train(args, train_df, bandit, model, optimizer):
             epochs=args.epochs,
             train_every=args.train_every,
             use_cuda=torch.cuda.is_available(),
+            logger=logger,
         )
         neural_ucb.run()
         regrets[i] = np.cumsum(neural_ucb.regrets)
+        logger.info(f"regret: {regrets[i][-1]}")
     return (model, regrets)
 
 
@@ -80,14 +84,31 @@ def split_dataset(T, test_size):
     return (train_df, test_df)
 
 
-def evaluate(args, test_df, bandit, model, optimizer):
+def get_logger(log_dir):
+    if not os.path.exists(log_dir):
+        os.makedirs(log_dir)
+    logger = logging.getLogger()
+    logger.setLevel(logging.INFO)
+    formatter = logging.Formatter("%(asctime)s [%(levelname)s] %(message)s")
+
+    streaming_handler = logging.StreamHandler()
+    streaming_handler.setFormatter(formatter)
+    filename = "ml-25m.log"
+    file_handler = logging.FileHandler(os.path.join(log_dir, filename))
+    file_handler.setFormatter(formatter)
+    logger.addHandler(streaming_handler)
+    logger.addHandler(file_handler)
+    return logger
+
+
+def evaluate(args, test_df, bandit, model, optimizer, logger):
     model.eval()
     metrics = {}
     metrics["regrets"] = np.empty((len(test_df["user_id"]), args.T))
 
     for i, uid in enumerate(test_df["user_id"]):
-        print(f"Simulation (User {uid}) Starts")
-        print("Bandit reset...")
+        logger.info(f"Simulation {i} (User {uid}) Starts")
+        logger.info("Bandit reset...")
         bandit.reset(uid)
         neural_ucb = NeuralUCB(
             bandit,
@@ -103,6 +124,7 @@ def evaluate(args, test_df, bandit, model, optimizer):
             epochs=args.epochs,
             train_every=args.T,
             use_cuda=torch.cuda.is_available(),
+            logger=logger,
         )
 
         neural_ucb.run()
@@ -118,9 +140,14 @@ def evaluate(args, test_df, bandit, model, optimizer):
 
 if __name__ == "__main__":
     args = parse_arguments()
-    train_df, test_df = split_dataset(args.T, args.test_size)
+    log_time = datetime.strftime(datetime.now(), "%Y%m%d_%H%M%S")
+    logger = get_logger(os.path.join("log", log_time))
+    logger.info(args)
 
-    print("Bandit setting...")
+    train_df, test_df = split_dataset(args.T, args.test_size)
+    logger.info(f"train size: {len(train_df)}, test size: {len(test_df)}")
+
+    logger.info("Bandit setting...")
     bandit = MultimodalContextualBandit(
         T=args.T,
         num_items=args.num_items,
@@ -139,10 +166,10 @@ if __name__ == "__main__":
     optimizer = torch.optim.Adam(model.parameters(), lr=args.learning_rate)
 
     model.train()
-    model, regrets = train(args, train_df, bandit, model, optimizer)
+    model, regrets = train(args, train_df, bandit, model, optimizer, logger)
     draw_figure(args.T, regrets, "figures/neural_ucb.pdf")
 
     model.eval()
     metrics = evaluate(
-        args, test_df, bandit, model, optimizer
+        args, test_df, bandit, model, optimizer, logger
     )
